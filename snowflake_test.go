@@ -10,7 +10,6 @@ import (
 // General Test funcs
 
 func TestNewNode(t *testing.T) {
-
 	_, err := NewNode(0)
 	if err != nil {
 		t.Fatalf("error creating NewNode, %s", err)
@@ -23,13 +22,33 @@ func TestNewNode(t *testing.T) {
 
 }
 
+func TestNewNodeWithCustomOptions(t *testing.T) {
+	_, err := NewNode(0, WithCustomBits(8, 14))
+	if err != nil {
+		t.Fatalf("error creating NewNode, %s", err)
+	}
+
+	_, err = NewNode(500, WithCustomBits(8, 14))
+	if err == nil {
+		t.Fatal("should return err when nodeId > nodeMax")
+	}
+}
+
 // lazy check if Generate will create duplicate IDs
 // would be good to later enhance this with more smarts
 func TestGenerateDuplicateID(t *testing.T) {
-
 	node, _ := NewNode(1)
 
 	var x, y ID
+	for i := 0; i < 1000000; i++ {
+		y = node.Generate()
+		if x == y {
+			t.Errorf("x(%d) & y(%d) are the same", x, y)
+		}
+		x = y
+	}
+
+	node, _ = NewNode(0, WithCustomBits(8, 14))
 	for i := 0; i < 1000000; i++ {
 		y = node.Generate()
 		if x == y {
@@ -217,14 +236,12 @@ func TestBase36(t *testing.T) {
 }
 
 func TestBase58(t *testing.T) {
-
 	node, err := NewNode(0)
 	if err != nil {
 		t.Fatalf("error creating NewNode, %s", err)
 	}
 
 	for i := 0; i < 10; i++ {
-
 		sf := node.Generate()
 		b58 := sf.Base58()
 		psf, err := ParseBase58([]byte(b58))

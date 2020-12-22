@@ -24,13 +24,10 @@ var (
 	// Remember, you have a total 22 bits to share between Node/Step
 	StepBits uint8 = 12
 
-	// DEPRECATED: the below four variables will be removed in a future release.
-	mu        sync.Mutex
-	nodeMax   int64 = -1 ^ (-1 << NodeBits)
-	nodeMask        = nodeMax << StepBits
-	stepMask  int64 = -1 ^ (-1 << StepBits)
-	timeShift       = NodeBits + StepBits
-	nodeShift       = StepBits
+	DefaultBitsConf = &bitsConfig{
+		nodeBits: NodeBits,
+		stepBits: StepBits,
+	}
 )
 
 const encodeBase32Map = "ybndrfg8ejkmcpqxot1uwisza345h769"
@@ -57,7 +54,6 @@ var ErrInvalidBase32 = errors.New("invalid base32")
 // Create maps for decoding Base58/Base32.
 // This speeds up the process tremendously.
 func init() {
-
 	for i := 0; i < len(encodeBase58Map); i++ {
 		decodeBase58Map[i] = 0xFF
 	}
@@ -91,31 +87,28 @@ type Node struct {
 	nodeShift uint8
 }
 
-// An ID is a custom type used for a snowflake ID.  This is used so we can
-// attach methods onto the ID.
-type ID int64
+type bitsConfig struct {
+	nodeBits uint8
+	stepBits uint8
+}
 
-// NewNode returns a new snowflake node that can be used to generate snowflake
-// IDs
-func NewNode(node int64) (*Node, error) {
+type Options func(conf *bitsConfig)
 
-	// re-calc in case custom NodeBits or StepBits were set
-	// DEPRECATED: the below block will be removed in a future release.
-	mu.Lock()
-	nodeMax = -1 ^ (-1 << NodeBits)
-	nodeMask = nodeMax << StepBits
-	stepMask = -1 ^ (-1 << StepBits)
-	timeShift = NodeBits + StepBits
-	nodeShift = StepBits
-	mu.Unlock()
+func WithCustomBits(nodeBits uint8, stepBits uint8) Options {
+	return func(conf *bitsConfig) {
+		conf.nodeBits = nodeBits
+		conf.stepBits = stepBits
+	}
+}
 
+func newNode(node int64, bitsConf *bitsConfig) (*Node, error) {
 	n := Node{}
 	n.node = node
-	n.nodeMax = -1 ^ (-1 << NodeBits)
+	n.nodeMax = -1 ^ (-1 << bitsConf.nodeBits)
 	n.nodeMask = n.nodeMax << StepBits
-	n.stepMask = -1 ^ (-1 << StepBits)
-	n.timeShift = NodeBits + StepBits
-	n.nodeShift = StepBits
+	n.stepMask = -1 ^ (-1 << bitsConf.stepBits)
+	n.timeShift = bitsConf.nodeBits + bitsConf.stepBits
+	n.nodeShift = bitsConf.stepBits
 
 	if n.node < 0 || n.node > n.nodeMax {
 		return nil, errors.New("Node number must be between 0 and " + strconv.FormatInt(n.nodeMax, 10))
@@ -128,12 +121,26 @@ func NewNode(node int64) (*Node, error) {
 	return &n, nil
 }
 
+// An ID is a custom type used for a snowflake ID.  This is used so we can
+// attach methods onto the ID.
+type ID int64
+
+// NewNode returns a new snowflake node that can be used to generate snowflake
+func NewNode(node int64, opts ...Options) (*Node, error) {
+	bitsConf := DefaultBitsConf
+
+	for _, opt := range opts {
+		opt(bitsConf)
+	}
+
+	return newNode(node, bitsConf)
+}
+
 // Generate creates and returns a unique snowflake ID
 // To help guarantee uniqueness
 // - Make sure your system is keeping accurate system time
 // - Make sure you never have multiple nodes running with the same node ID
 func (n *Node) Generate() ID {
-
 	n.mu.Lock()
 
 	now := time.Since(n.epoch).Nanoseconds() / 1000000
@@ -196,10 +203,9 @@ func ParseBase2(id string) (ID, error) {
 
 // Base32 uses the z-base-32 character set but encodes and decodes similar
 // to base58, allowing it to create an even smaller result string.
-// NOTE: There are many different base32 implementations so becareful when
+// NOTE: There are many different base32 implementations so be careful when
 // doing any interoperation.
 func (f ID) Base32() string {
-
 	if f < 32 {
 		return string(encodeBase32Map[f])
 	}
@@ -320,24 +326,6 @@ func (f ID) IntBytes() [8]byte {
 // a snowflake ID
 func ParseIntBytes(id [8]byte) ID {
 	return ID(int64(binary.BigEndian.Uint64(id[:])))
-}
-
-// Time returns an int64 unix timestamp in milliseconds of the snowflake ID time
-// DEPRECATED: the below function will be removed in a future release.
-func (f ID) Time() int64 {
-	return (int64(f) >> timeShift) + Epoch
-}
-
-// Node returns an int64 of the snowflake ID node number
-// DEPRECATED: the below function will be removed in a future release.
-func (f ID) Node() int64 {
-	return int64(f) & nodeMask >> nodeShift
-}
-
-// Step returns an int64 of the snowflake step (or sequence) number
-// DEPRECATED: the below function will be removed in a future release.
-func (f ID) Step() int64 {
-	return int64(f) & stepMask
 }
 
 // MarshalJSON returns a json byte array string of the snowflake ID.
